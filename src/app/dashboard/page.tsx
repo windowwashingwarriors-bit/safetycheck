@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { subscribeToPush } from '@/components/ServiceWorkerRegistration'
 
 type Session = {
   id: string
@@ -15,7 +16,25 @@ export default function DashboardPage() {
   const [sessions, setSessions] = useState<Session[]>([])
   const [completedToday, setCompletedToday] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [notifStatus, setNotifStatus] = useState<'unknown' | 'granted' | 'denied' | 'unsupported'>('unknown')
   const router = useRouter()
+
+  // Check current notification permission state after mount
+  useEffect(() => {
+    if (!('Notification' in window)) {
+      setNotifStatus('unsupported')
+    } else if (Notification.permission === 'granted') {
+      setNotifStatus('granted')
+    } else if (Notification.permission === 'denied') {
+      setNotifStatus('denied')
+    }
+  }, [])
+
+  const handleEnableNotifications = async () => {
+    if (!user) return
+    const ok = await subscribeToPush(user.id)
+    setNotifStatus(ok ? 'granted' : 'denied')
+  }
 
   useEffect(() => {
     const initDashboard = async () => {
@@ -112,6 +131,29 @@ export default function DashboardPage() {
       </header>
 
       <main className="max-w-4xl mx-auto px-4 py-8 space-y-6">
+        {/* Notification prompt — only for technicians who haven't granted yet */}
+        {user?.role === 'technician' && notifStatus === 'unknown' && (
+          <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-center justify-between gap-4">
+            <div>
+              <p className="font-medium text-blue-900 text-sm">Get 8 AM reminders</p>
+              <p className="text-blue-700 text-xs mt-0.5">We'll remind you Mon–Sat so you never miss a quiz.</p>
+            </div>
+            <button
+              onClick={handleEnableNotifications}
+              className="shrink-0 bg-blue-600 text-white text-sm font-semibold px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              Enable
+            </button>
+          </div>
+        )}
+        {user?.role === 'technician' && notifStatus === 'denied' && (
+          <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4">
+            <p className="text-yellow-800 text-sm">
+              Notifications are blocked. Enable them in your browser settings to receive 8 AM reminders.
+            </p>
+          </div>
+        )}
+
         {/* Stats */}
         <div className="bg-white rounded-xl shadow-sm p-6">
           <h2 className="text-xl font-semibold text-gray-900 mb-5">Your Stats</h2>
