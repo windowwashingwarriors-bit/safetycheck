@@ -30,6 +30,7 @@ export default function QuizPage() {
   const [questions, setQuestions] = useState<Question[]>([])
   const [currentQuestion, setCurrentQuestion] = useState(0)
   const [answers, setAnswers] = useState<Record<string, string>>({})
+  const [revealed, setRevealed] = useState<Record<string, boolean>>({})
   const [quote, setQuote] = useState<Quote | null>(null)
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
@@ -88,7 +89,19 @@ export default function QuizPage() {
   }, [router])
 
   const handleAnswer = (questionId: string, answer: string) => {
+    // Don't allow changing answer after it's been revealed
+    if (revealed[questionId]) return
     setAnswers(prev => ({ ...prev, [questionId]: answer }))
+  }
+
+  const handleReveal = (questionId: string) => {
+    setRevealed(prev => ({ ...prev, [questionId]: true }))
+  }
+
+  const handleContinue = () => {
+    if (currentQuestion < questions.length - 1) {
+      setCurrentQuestion(prev => prev + 1)
+    }
   }
 
   const handleSubmit = async () => {
@@ -158,6 +171,8 @@ export default function QuizPage() {
 
   const question = questions[currentQuestion]
   const isAnswered = !!answers[question?.id]
+  const isRevealed = !!(question && revealed[question.id])
+  const isCorrect = !!(question && answers[question.id] === question.correct_answer)
   const allAnswered = Object.keys(answers).length === questions.length
   const isLast = currentQuestion === questions.length - 1
 
@@ -242,26 +257,69 @@ export default function QuizPage() {
               {/* Multiple choice */}
               {question.type === 'multiple_choice' && question.options && (
                 <div className="space-y-3">
-                  {question.options.map((option, idx) => (
-                    <label
-                      key={idx}
-                      className={`flex items-center space-x-3 p-3 rounded-lg border-2 cursor-pointer transition-colors ${
-                        answers[question.id] === option
-                          ? 'border-blue-500 bg-blue-50'
-                          : 'border-gray-200 hover:border-gray-300'
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name={`q-${question.id}`}
-                        value={option}
-                        checked={answers[question.id] === option}
-                        onChange={() => handleAnswer(question.id, option)}
-                        className="text-blue-600"
-                      />
-                      <span className="text-gray-700">{option}</span>
-                    </label>
-                  ))}
+                  {question.options.map((option, idx) => {
+                    const isSelected = answers[question.id] === option
+                    const isRightAnswer = option === question.correct_answer
+
+                    let optionStyle = 'border-gray-200'
+                    let textStyle = 'text-gray-700'
+                    let indicator = null
+
+                    if (!isRevealed) {
+                      if (isSelected) {
+                        optionStyle = 'border-blue-500 bg-blue-50'
+                        textStyle = 'text-blue-800 font-medium'
+                      } else {
+                        optionStyle = 'border-gray-200 hover:border-gray-300 cursor-pointer'
+                      }
+                    } else {
+                      if (isRightAnswer) {
+                        optionStyle = 'border-green-500 bg-green-50'
+                        textStyle = 'text-green-800 font-medium'
+                        indicator = <span className="ml-auto text-green-600 font-bold text-lg">✓</span>
+                      } else if (isSelected && !isRightAnswer) {
+                        optionStyle = 'border-red-400 bg-red-50'
+                        textStyle = 'text-red-700 font-medium'
+                        indicator = <span className="ml-auto text-red-500 font-bold text-lg">✗</span>
+                      } else {
+                        optionStyle = 'border-gray-200 opacity-50'
+                      }
+                    }
+
+                    return (
+                      <label
+                        key={idx}
+                        className={`flex items-center space-x-3 p-3 rounded-lg border-2 transition-colors ${optionStyle} ${!isRevealed ? 'cursor-pointer' : 'cursor-default'}`}
+                        onClick={() => !isRevealed && handleAnswer(question.id, option)}
+                      >
+                        <input
+                          type="radio"
+                          name={`q-${question.id}`}
+                          value={option}
+                          checked={isSelected}
+                          onChange={() => !isRevealed && handleAnswer(question.id, option)}
+                          className="text-blue-600 flex-shrink-0"
+                          disabled={isRevealed}
+                        />
+                        <span className={`flex-1 ${textStyle}`}>{option}</span>
+                        {indicator}
+                      </label>
+                    )
+                  })}
+
+                  {/* Feedback message after reveal */}
+                  {isRevealed && (
+                    <div className={`mt-4 p-4 rounded-lg border ${isCorrect ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+                      {isCorrect ? (
+                        <p className="text-green-800 font-semibold">Correct! Keep it up.</p>
+                      ) : (
+                        <div>
+                          <p className="text-red-800 font-semibold mb-1">Not quite.</p>
+                          <p className="text-red-700 text-sm">The correct answer is: <span className="font-bold">{question.correct_answer}</span></p>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -283,10 +341,10 @@ export default function QuizPage() {
                 </div>
               )}
 
-              {/* Incorrect answer — show video link if available */}
+              {/* Video link — shown after reveal if answered wrong */}
               {question.type === 'multiple_choice' &&
-                answers[question.id] &&
-                answers[question.id] !== question.correct_answer &&
+                isRevealed &&
+                !isCorrect &&
                 question.video_url && (
                   <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
                     <p className="text-amber-800 font-medium text-sm">Review this topic:</p>
@@ -304,30 +362,71 @@ export default function QuizPage() {
           )}
 
           {/* Navigation */}
-          <div className="flex justify-between mt-8">
-            <button
-              onClick={() => setCurrentQuestion(prev => Math.max(0, prev - 1))}
-              disabled={currentQuestion === 0}
-              className="px-6 py-2.5 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-            >
-              Previous
-            </button>
+          <div className="mt-8 space-y-3">
+            {/* Multiple choice: Check Answer → then Continue/Submit */}
+            {question.type === 'multiple_choice' && (
+              <>
+                {!isRevealed ? (
+                  <button
+                    onClick={() => handleReveal(question.id)}
+                    disabled={!isAnswered}
+                    className="w-full py-3.5 bg-blue-600 text-white rounded-xl font-semibold text-base hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  >
+                    Check Answer
+                  </button>
+                ) : (
+                  <>
+                    {!isLast ? (
+                      <button
+                        onClick={handleContinue}
+                        className={`w-full py-3.5 rounded-xl font-semibold text-base text-white transition-colors ${isCorrect ? 'bg-green-600 hover:bg-green-700' : 'bg-blue-600 hover:bg-blue-700'}`}
+                      >
+                        {isCorrect ? 'Got it — Next Question' : 'Got it — Next Question'}
+                      </button>
+                    ) : (
+                      <button
+                        onClick={handleSubmit}
+                        disabled={!allAnswered || submitting}
+                        className="w-full py-3.5 bg-green-600 text-white rounded-xl font-semibold text-base hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                      >
+                        {submitting ? 'Submitting…' : 'Submit Quiz'}
+                      </button>
+                    )}
+                  </>
+                )}
+              </>
+            )}
 
-            {!isLast ? (
+            {/* Short answer: straight to Submit on last, or Next */}
+            {question.type === 'short_answer' && (
+              <>
+                {!isLast ? (
+                  <button
+                    onClick={() => setCurrentQuestion(prev => prev + 1)}
+                    disabled={!isAnswered}
+                    className="w-full py-3.5 bg-blue-600 text-white rounded-xl font-semibold text-base hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  >
+                    Next
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleSubmit}
+                    disabled={!allAnswered || submitting}
+                    className="w-full py-3.5 bg-green-600 text-white rounded-xl font-semibold text-base hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {submitting ? 'Submitting…' : 'Submit Quiz'}
+                  </button>
+                )}
+              </>
+            )}
+
+            {/* Back button — only before reveal so they can change their mind */}
+            {!isRevealed && currentQuestion > 0 && (
               <button
-                onClick={() => setCurrentQuestion(prev => prev + 1)}
-                disabled={!isAnswered}
-                className="px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                onClick={() => setCurrentQuestion(prev => Math.max(0, prev - 1))}
+                className="w-full py-2.5 border border-gray-300 rounded-xl text-gray-500 text-sm hover:bg-gray-50 transition-colors"
               >
-                Next
-              </button>
-            ) : (
-              <button
-                onClick={handleSubmit}
-                disabled={!allAnswered || submitting}
-                className="px-8 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed font-semibold transition-colors"
-              >
-                {submitting ? 'Submitting…' : 'Submit Quiz'}
+                Back
               </button>
             )}
           </div>
